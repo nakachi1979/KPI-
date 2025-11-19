@@ -1,0 +1,5 @@
+{
+  "name": "KPI見える化電卓",
+  "description": "日々の数字を入力するだけで、未来の積み上げや目標からの逆算を即座にシミュレーションできるKPI電卓アプリです。",
+  "requestFramePermissions": []
+}
