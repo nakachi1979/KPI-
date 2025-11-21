@@ -1,86 +1,63 @@
 // api/insight.ts
 
-// Vercel Node.js Functions 用のシンプルなハンドラ
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
+// Vercel で Edge Functions として動かす設定
+export const config = {
+  runtime: "edge",
+};
+
 export default async function handler(req: Request): Promise<Response> {
-  if (req.method !== "POST") {
-    return new Response("Method Not Allowed", { status: 405 });
-  }
-
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return new Response(
-      JSON.stringify({ error: "GEMINI_API_KEY is not set on the server" }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
-  }
-
-  let prompt: string;
   try {
-    const body = await req.json();
-    // フロント側のフィールド名に合わせて調整してください
-    prompt = body.prompt ?? body.input ?? "";
-  } catch (e) {
-    return new Response(
-      JSON.stringify({ error: "Invalid JSON body" }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
-    );
-  }
-
-  if (!prompt) {
-    return new Response(
-      JSON.stringify({ error: "prompt is required" }),
-      { status: 400, headers: { "Content-Type": "application/json" } }
-    );
-  }
-
-  // さきほど確認した REST エンドポイントをそのまま利用
-  const url =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent";
-
-  const payload = {
-    contents: [
-      {
-        parts: [{ text: prompt }],
-      },
-    ],
-  };
-
-  try {
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const data = await resp.json();
-
-    if (!resp.ok) {
-      return new Response(
-        JSON.stringify({
-          error: "Gemini API error",
-          status: resp.status,
-          details: data,
-        }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
-      );
+    // POST 以外は拒否
+    if (req.method !== "POST") {
+      return new Response("Only POST is allowed", { status: 405 });
     }
 
-    const text =
-      data.candidates?.[0]?.content?.parts
-        ?.map((p: any) => p.text ?? "")
-        .join("") ?? "";
+    // フロントから送られてきた JSON を取得
+    const body: any = await req.json().catch(() => ({}));
 
+    // どんな形で来ても、とりあえずテキストを取り出す
+    const prompt =
+      body?.prompt ??
+      body?.input ??
+      body?.message ??
+      body?.text ??
+      JSON.stringify(body ?? {});
+
+    // 環境変数から API キー取得（Vercel の GEMINI_API_KEY）
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return new Response("GEMINI_API_KEY is not set", { status: 500 });
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    // 新しい generateContent 形式で呼び出し
+    const result = await model.generateContent({
+      contents: [
+        {
+          role: "user",
+          parts: [{ text: prompt }],
+        },
+      ],
+    });
+
+    const text = result.response.text();
+
+    return new Response(JSON.stringify({ text }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err: any) {
+    console.error(err);
     return new Response(
-      JSON.stringify({ text }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
-    );
-  } catch (e: any) {
-    return new Response(
-      JSON.stringify({ error: "Request to Gemini failed", details: String(e) }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
+      JSON.stringify({ error: String(err?.message ?? err) }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
     );
   }
 }
